@@ -19,7 +19,7 @@ package types
 
 import (
 	v2 "mosn.io/mosn/pkg/config/v2"
-	"mosn.io/proxy-wasm-go-host/common"
+	"mosn.io/proxy-wasm-go-host/proxywasm/common"
 )
 
 //
@@ -95,7 +95,7 @@ type WasmPlugin interface {
 	// SetCpuLimit set cpu limit of the plugin, not supported currently
 	SetCpuLimit(cpu int)
 
-	// SetCpuLimit set cpu limit of the plugin, not supported currently
+	// SetMemLimit set cpu limit of the plugin, not supported currently
 	SetMemLimit(mem int)
 
 	// Clear got called when the plugin is destroyed

@@ -20,7 +20,7 @@ package wasm
 import (
 	"mosn.io/api"
 	v2 "mosn.io/mosn/pkg/config/v2"
-	"mosn.io/proxy-wasm-go-host/proxywasm"
+	proxywasm "mosn.io/proxy-wasm-go-host/proxywasm/v1"
 )
 
 const (
@@ -35,7 +35,6 @@ const (
 	RpcOneWayRequestFlag byte = 1<<6 | 1<<7
 	RpcResponseFlag      byte = 0
 	RpcIdIndex                = 4
-	ProtocolName              = "wasm"
 	RpcTimeout                = "timeout"
 	RpcResponseStatus         = 0
 	UnKnownMagicType          = "unknown magic type"

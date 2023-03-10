@@ -27,8 +27,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"mosn.io/api"
-	"mosn.io/mosn/pkg/config/v2"
+	v2 "mosn.io/mosn/pkg/config/v2"
 )
 
 type testCallback struct {
@@ -104,7 +105,7 @@ func TestParseClusterConfig(t *testing.T) {
 	clusters, clMap := ParseClusterConfig([]v2.Cluster{cluster})
 	c := clusters[0]
 	for _, h := range c.Hosts {
-		if h.Weight < MinHostWeight || h.Weight > MaxHostWeight {
+		if h.Weight < v2.MinHostWeight || h.Weight > v2.MaxHostWeight {
 			t.Error("unexpected host weight")
 		}
 	}
@@ -119,14 +120,14 @@ func TestParseClusterConfig(t *testing.T) {
 		t.Error("no callback")
 	}
 
-	if c.MaxRequestPerConn != DefaultMaxRequestPerConn {
+	if c.MaxRequestPerConn != v2.DefaultMaxRequestPerConn {
 		t.Errorf("Expect cluster.MaxRequestPerConn default value %d but got %d",
-			DefaultMaxRequestPerConn, c.MaxRequestPerConn)
+			v2.DefaultMaxRequestPerConn, c.MaxRequestPerConn)
 	}
 
-	if c.ConnBufferLimitBytes != DefaultConnBufferLimitBytes {
+	if c.ConnBufferLimitBytes != v2.DefaultConnBufferLimitBytes {
 		t.Errorf("Expect cluster.ConnBufferLimitBytes default value%d, but got %d",
-			DefaultConnBufferLimitBytes, c.ConnBufferLimitBytes)
+			v2.DefaultConnBufferLimitBytes, c.ConnBufferLimitBytes)
 	}
 }
 func TestParseListenerConfig(t *testing.T) {
@@ -267,7 +268,7 @@ func TestParseServerConfig(t *testing.T) {
 	}
 }
 
-func TestGetListenerFilters(t *testing.T) {
+func TestListenerFilterFactories(t *testing.T) {
 	api.RegisterListener("test1", func(cfg map[string]interface{}) (api.ListenerFilterChainFactory, error) {
 		return &struct {
 			api.ListenerFilterChainFactory
@@ -279,41 +280,41 @@ func TestGetListenerFilters(t *testing.T) {
 	api.RegisterListener("test_error", func(cfg map[string]interface{}) (api.ListenerFilterChainFactory, error) {
 		return nil, errors.New("invalid factory create")
 	})
-	facs := GetListenerFilters([]v2.Filter{
-		{
-			Type: "test1",
-		},
-		{
-			Type: "test_error",
-		},
-		{
-			Type: "not registered",
-		},
-		{
-			Type: "test_nil",
-		},
-	})
-	if len(facs) != 1 {
-		t.Fatalf("expected got only one success factory, but got %d", len(facs))
+
+	config := []v2.Filter{
+		{Type: "test1"},
+		{Type: "test_error"},
+		{Type: "not registered"},
+		{Type: "test_nil"},
 	}
+
+	factoryNil := GetListenerFilterFactories("test_listener")
+	assert.Nil(t, factoryNil)
+
+	factory := AddOrUpdateListenerFilterFactories("test_listener", config)
+	factory1 := GetListenerFilterFactories("test_listener")
+	factory2 := GetListenerFilterFactories("test_listener")
+	assert.NotNil(t, factory)
+	assert.Equal(t, factory, factory1)
+	assert.Equal(t, factory1, factory2)
 }
 
-func TestGetNetworkFilters(t *testing.T) {
+func TestNetworkFilterFactories(t *testing.T) {
 	api.RegisterNetwork("test_nil", func(cfg map[string]interface{}) (api.NetworkFilterChainFactory, error) {
 		return nil, nil
 	})
 	api.RegisterNetwork("test1", func(cfg map[string]interface{}) (api.NetworkFilterChainFactory, error) {
-		return &struct {
-			api.NetworkFilterChainFactory
-		}{}, nil
+		return &struct{ api.NetworkFilterChainFactory }{}, nil
 	})
 	api.RegisterNetwork("test_error", func(cfg map[string]interface{}) (api.NetworkFilterChainFactory, error) {
 		return nil, errors.New("invalid factory create")
 	})
-	facs := GetNetworkFilters(&v2.Listener{
+
+	listenerConfig := &v2.Listener{
 		ListenerConfig: v2.ListenerConfig{
+			Name: "test_listener",
 			FilterChains: []v2.FilterChain{
-				v2.FilterChain{
+				{
 					FilterChainConfig: v2.FilterChainConfig{
 						Filters: []v2.Filter{
 							{Type: "test1"},
@@ -325,8 +326,15 @@ func TestGetNetworkFilters(t *testing.T) {
 				},
 			},
 		},
-	})
-	if len(facs) != 1 {
-		t.Fatalf("expected got only one success factory, but got %d", len(facs))
 	}
+
+	factoryNil := GetNetworkFilterFactories("test_listener")
+	assert.Nil(t, factoryNil)
+
+	factory := AddOrUpdateNetworkFilterFactories("test_listener", listenerConfig)
+	factory1 := GetNetworkFilterFactories("test_listener")
+	factory2 := GetNetworkFilterFactories("test_listener")
+	assert.NotNil(t, factory)
+	assert.Equal(t, factory, factory1)
+	assert.Equal(t, factory1, factory2)
 }

@@ -19,14 +19,11 @@ package trace
 
 import (
 	"context"
-
-	"mosn.io/api"
-
-	"mosn.io/mosn/pkg/types"
-
 	"errors"
 
-	mosnctx "mosn.io/mosn/pkg/context"
+	"mosn.io/api"
+	"mosn.io/mosn/pkg/types"
+	"mosn.io/pkg/variable"
 )
 
 var ErrNoSuchDriver = errors.New("no such driver")
@@ -41,7 +38,7 @@ var global = globalHolder{
 }
 
 func SpanFromContext(ctx context.Context) api.Span {
-	if val := mosnctx.Get(ctx, types.ContextKeyActiveSpan); val != nil {
+	if val, err := variable.Get(ctx, types.VariableTraceSpan); err == nil {
 		if sp, ok := val.(api.Span); ok {
 			return sp
 		}
@@ -64,6 +61,9 @@ func Init(typ string, config map[string]interface{}) error {
 }
 
 func Enable() {
+	if global.driver == nil {
+		return
+	}
 	global.enable = true
 }
 

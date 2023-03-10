@@ -19,6 +19,7 @@ package v2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -35,10 +36,12 @@ type HealthCheckConfig struct {
 	TimeoutConfig        api.DurationConfig     `json:"timeout,omitempty"`
 	IntervalConfig       api.DurationConfig     `json:"interval,omitempty"`
 	IntervalJitterConfig api.DurationConfig     `json:"interval_jitter,omitempty"`
+	InitialDelaySeconds  api.DurationConfig     `json:"initial_delay_seconds,omitempty"`
 	HealthyThreshold     uint32                 `json:"healthy_threshold,omitempty"`
 	UnhealthyThreshold   uint32                 `json:"unhealthy_threshold,omitempty"`
 	ServiceName          string                 `json:"service_name,omitempty"`
 	SessionConfig        map[string]interface{} `json:"check_config,omitempty"`
+	EventLogPath         string                 `json:"event_log_path,omitempty"`
 	CommonCallbacks      []string               `json:"common_callbacks,omitempty"` // HealthCheck support register some common callbacks that are not related to specific cluster
 }
 
@@ -55,8 +58,8 @@ type ClusterType string
 
 // Group of cluster type
 const (
-	STATIC_CLUSTER      ClusterType = "STATIC"
 	SIMPLE_CLUSTER      ClusterType = "SIMPLE"
+	STATIC_CLUSTER      ClusterType = "STATIC"
 	DYNAMIC_CLUSTER     ClusterType = "DYNAMIC"
 	EDS_CLUSTER         ClusterType = "EDS"
 	ORIGINALDST_CLUSTER ClusterType = "ORIGINAL_DST"
@@ -89,6 +92,7 @@ type Cluster struct {
 	SubType              string              `json:"sub_type,omitempty"` //not used yet
 	LbType               LbType              `json:"lb_type,omitempty"`
 	MaxRequestPerConn    uint32              `json:"max_request_per_conn,omitempty"`
+	Mark                 uint32              `json:"mark,omitempty"`
 	ConnBufferLimitBytes uint32              `json:"conn_buffer_limit_bytes,omitempty"`
 	CirBreThresholds     CircuitBreakers     `json:"circuit_breakers,omitempty"`
 	HealthCheck          HealthCheck         `json:"health_check,omitempty"`
@@ -99,6 +103,7 @@ type Cluster struct {
 	TLS                  TLSConfig           `json:"tls_context,omitempty"`
 	Hosts                []Host              `json:"hosts,omitempty"`
 	ConnectTimeout       *api.DurationConfig `json:"connect_timeout,omitempty"`
+	IdleTimeout          *api.DurationConfig `json:"idle_timeout,omitempty"`
 	LbConfig             IsCluster_LbConfig  `json:"lbconfig,omitempty"`
 	DnsRefreshRate       *api.DurationConfig `json:"dns_refresh_rate,omitempty"`
 	RespectDnsTTL        bool                `json:"respect_dns_ttl,omitempty"`
@@ -106,6 +111,7 @@ type Cluster struct {
 	DnsResolverConfig    DnsResolverConfig   `json:"dns_resolvers,omitempty"`
 	DnsResolverFile      string              `json:"dns_resolver_file,omitempty"`
 	DnsResolverPort      string              `json:"dns_resolver_port,omitempty"`
+	SlowStart            SlowStartConfig     `json:"slow_start,omitempty"`
 }
 
 type DnsResolverConfig struct {
@@ -115,6 +121,13 @@ type DnsResolverConfig struct {
 	Ndots    int      `json:"ndots,omitempty"`
 	Timeout  int      `json:"timeout,omitempty"`
 	Attempts int      `json:"attempts,omitempty"`
+}
+
+type SlowStartConfig struct {
+	Mode              string              `json:"mode,omitempty"`
+	SlowStartDuration *api.DurationConfig `json:"slow_start_duration,omitempty"`
+	Aggression        float64             `json:"aggression,omitempty"`
+	MinWeightPercent  float64             `json:"min_weight_percent,omitempty"`
 }
 
 // HealthCheck is a configuration of health check
@@ -206,6 +219,9 @@ type LBSubsetConfig struct {
 type LBOriDstConfig struct {
 	UseHeader  bool   `json:"use_header,omitempty"`
 	HeaderName string `json:"header_name,omitempty"`
+	// ReplaceLocal is true means the load balance will always choose
+	// a host with local address
+	ReplaceLocal bool `json:"replace_local,omitempty"`
 }
 
 // ClusterManagerConfig for making up cluster manager
@@ -301,3 +317,5 @@ func (cc ClusterManagerConfig) MarshalJSON() (b []byte, err error) {
 	}
 	return json.Marshal(cc.ClusterManagerConfigJson)
 }
+
+var NotPercentError = errors.New("not a percent")

@@ -114,7 +114,7 @@ func TestXdsClient(t *testing.T) {
 			records[s] = struct{}{}
 		},
 	}
-	ResgiterParseAdsConfig(func(_, _ json.RawMessage) (XdsStreamConfig, error) {
+	RegisterParseAdsConfig(func(_, _ json.RawMessage) (XdsStreamConfig, error) {
 		return cfg, nil
 	})
 	t.Run("start a xds client", func(t *testing.T) {
@@ -157,6 +157,19 @@ func TestXdsClient(t *testing.T) {
 		cfg.failed = 1
 		client, _ := NewAdsClient(&v2.MOSNConfig{})
 		client.Start()
+		time.Sleep(3 * time.Second)
+		_, ok := records["cds-test"]
+		require.True(t, ok)
+		waitStop(client)
+	})
+
+	t.Run("reconnect client once", func(t *testing.T) {
+		records = map[string]struct{}{}
+		EnableReconnect()
+		cfg.failed = 1
+		client, _ := NewAdsClient(&v2.MOSNConfig{})
+		client.Start()
+		client.ReconnectStreamClient()
 		time.Sleep(3 * time.Second)
 		_, ok := records["cds-test"]
 		require.True(t, ok)

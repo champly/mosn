@@ -26,40 +26,15 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"go.uber.org/automaxprocs/maxprocs"
 	"mosn.io/api"
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
-	"mosn.io/mosn/pkg/protocol"
 )
 
 type ContentKey string
-
-var ProtocolsSupported = map[string]bool{
-	string(protocol.Auto):      true,
-	string(protocol.HTTP1):     true,
-	string(protocol.HTTP2):     true,
-	string(protocol.Xprotocol): true,
-}
-
-const (
-	MinHostWeight               = uint32(1)
-	MaxHostWeight               = uint32(128)
-	DefaultMaxRequestPerConn    = uint32(1024)
-	DefaultConnBufferLimitBytes = uint32(16 * 1024)
-)
-
-// RegisterProtocolParser
-// used to register parser
-func RegisterProtocolParser(key string) bool {
-	if _, ok := ProtocolsSupported[key]; ok {
-		return false
-	}
-	log.StartLogger.Infof("[config] %s added to ProtocolsSupported", key)
-	ProtocolsSupported[key] = true
-	return true
-}
 
 // ParsedCallback is an
 // alias for closure func(data interface{}, endParsing bool) error
@@ -101,14 +76,14 @@ func ParseClusterConfig(clusters []v2.Cluster) ([]v2.Cluster, map[string][]v2.Ho
 			log.StartLogger.Fatalf("[config] [parse cluster] name is required in cluster config")
 		}
 		if c.MaxRequestPerConn == 0 {
-			c.MaxRequestPerConn = DefaultMaxRequestPerConn
+			c.MaxRequestPerConn = v2.DefaultMaxRequestPerConn
 			log.StartLogger.Infof("[config] [parse cluster] max_request_per_conn is not specified, use default value %d",
-				DefaultMaxRequestPerConn)
+				v2.DefaultMaxRequestPerConn)
 		}
 		if c.ConnBufferLimitBytes == 0 {
-			c.ConnBufferLimitBytes = DefaultConnBufferLimitBytes
+			c.ConnBufferLimitBytes = v2.DefaultConnBufferLimitBytes
 			log.StartLogger.Infof("[config] [parse cluster] conn_buffer_limit_bytes is not specified, use default value %d",
-				DefaultConnBufferLimitBytes)
+				v2.DefaultConnBufferLimitBytes)
 		}
 		if c.LBSubSetConfig.FallBackPolicy > 2 {
 			log.StartLogger.Errorf("[config] [parse cluster] lb subset config 's fall back policy set error. " +
@@ -116,9 +91,6 @@ func ParseClusterConfig(clusters []v2.Cluster) ([]v2.Cluster, map[string][]v2.Ho
 				"For 1, represent ANY_ENDPOINT" +
 				"For 2, represent DEFAULT_SUBSET")
 			c.LBSubSetConfig.FallBackPolicy = 0
-		}
-		if _, ok := ProtocolsSupported[c.HealthCheck.Protocol]; !ok && c.HealthCheck.Protocol != "" {
-			log.StartLogger.Errorf("[config] [parse cluster] unsupported health check protocol: %v", c.HealthCheck.Protocol)
 		}
 		c.Hosts = parseHostConfig(c.Hosts)
 		clusterV2Map[c.Name] = c.Hosts
@@ -143,11 +115,11 @@ func parseHostConfig(hosts []v2.Host) (hs []v2.Host) {
 }
 
 func transHostWeight(weight uint32) uint32 {
-	if weight > MaxHostWeight {
-		return MaxHostWeight
+	if weight > v2.MaxHostWeight {
+		return v2.MaxHostWeight
 	}
-	if weight < MinHostWeight {
-		return MinHostWeight
+	if weight < v2.MinHostWeight {
+		return v2.MinHostWeight
 	}
 	return weight
 }
@@ -336,7 +308,7 @@ func ParseServerConfig(c *v2.ServerConfig) *v2.ServerConfig {
 
 func setMaxProcsWithProcessor(procs interface{}) {
 	// env variable has the highest priority.
-	if n, _ := strconv.Atoi(os.Getenv("GOMAXPROCS")); n > 0 && n <= runtime.NumCPU() {
+	if n, _ := strconv.Atoi(os.Getenv("GOMAXPROCS")); n > 0 {
 		runtime.GOMAXPROCS(n)
 		return
 	}
@@ -382,14 +354,20 @@ func setMaxProcsWithProcessor(procs interface{}) {
 	}
 }
 
-// GetListenerFilters returns a listener filter factory by filter.Type
-func GetListenerFilters(configs []v2.Filter) []api.ListenerFilterChainFactory {
+var listenerFilterFactoryMap = sync.Map{}
+
+// AddOrUpdateListenerFilterFactories adds or updates the listener filter factories of a listener
+func AddOrUpdateListenerFilterFactories(listenerName string, configs []v2.Filter) []api.ListenerFilterChainFactory {
+	if listenerName == "" || len(configs) == 0 {
+		return nil
+	}
+
 	var factories []api.ListenerFilterChainFactory
 
 	for _, c := range configs {
 		sfcc, err := api.CreateListenerFilterChainFactory(c.Type, c.Config)
 		if err != nil {
-			log.DefaultLogger.Errorf("[config] get listener filter failed, type: %s, error: %v", c.Type, err)
+			log.DefaultLogger.Errorf("[config] AddOrUpdateListenerFilterFactories failed, type: %s, error: %v", c.Type, err)
 			continue
 		}
 		if sfcc != nil {
@@ -397,22 +375,53 @@ func GetListenerFilters(configs []v2.Filter) []api.ListenerFilterChainFactory {
 		}
 	}
 
+	if len(factories) == 0 {
+		log.DefaultLogger.Errorf("[config] AddOrUpdateListenerFilterFactories factories len is 0, listenerName: %v", listenerName)
+		return nil
+	}
+
+	listenerFilterFactoryMap.Store(listenerName, factories)
+	if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+		log.DefaultLogger.Debugf("[config] AddOrUpdateListenerFilterFactories store listener factory, name: %v, config: %v",
+			listenerName, configs)
+	}
+
 	return factories
 }
 
-// GetNetworkFilters returns a network filter factory by filter.Type
-func GetNetworkFilters(ln *v2.Listener) []api.NetworkFilterChainFactory {
+// GetListenerFilterFactories returns a listener filter factory by filter.Type
+func GetListenerFilterFactories(listenerName string) []api.ListenerFilterChainFactory {
+	if listenerName == "" {
+		return nil
+	}
+
+	if v, ok := listenerFilterFactoryMap.Load(listenerName); ok {
+		return v.([]api.ListenerFilterChainFactory)
+	}
+
+	return nil
+}
+
+var networkFilterFactoryMap = sync.Map{}
+
+// AddOrUpdateNetworkFilterFactories adds or updates the network filter factories of a listener
+func AddOrUpdateNetworkFilterFactories(listenerName string, ln *v2.Listener) []api.NetworkFilterChainFactory {
+	if ln == nil || listenerName == "" {
+		log.DefaultLogger.Errorf("[config] network filter create failed, error: nil listener or empty name")
+		return nil
+	}
+
 	var factories []api.NetworkFilterChainFactory
 	c := ln.FilterChains[0]
 	for _, f := range c.Filters {
 		factory, err := api.CreateNetworkFilterChainFactory(f.Type, f.Config)
 		if err != nil {
-			log.StartLogger.Errorf("[config] network filter create failed, type:%s, error: %v", f.Type, err)
+			log.DefaultLogger.Errorf("[config] network filter create failed, type:%s, error: %v", f.Type, err)
 			continue
 		}
 		if initializer, ok := factory.(api.FactoryInitializer); ok {
 			if err := initializer.Init(ln); err != nil {
-				log.StartLogger.Errorf("[config] network filter init failed, type:%s, error:%v", f.Type, err)
+				log.DefaultLogger.Errorf("[config] network filter init failed, type:%s, error:%v", f.Type, err)
 				continue
 			}
 		}
@@ -420,5 +429,29 @@ func GetNetworkFilters(ln *v2.Listener) []api.NetworkFilterChainFactory {
 			factories = append(factories, factory)
 		}
 	}
+
+	if len(factories) == 0 {
+		log.DefaultLogger.Errorf("[config] network filter factories len is 0, listener: %+v", ln)
+		return nil
+	}
+
+	networkFilterFactoryMap.Store(listenerName, factories)
+	if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+		log.DefaultLogger.Debugf("[config] AddOrUpdateNetworkFilterFactories store network filter factories, name: %v", listenerName)
+	}
+
 	return factories
+}
+
+// GetNetworkFilterFactories returns a network filter factory by filter.Type
+func GetNetworkFilterFactories(listenerName string) []api.NetworkFilterChainFactory {
+	if listenerName == "" {
+		return nil
+	}
+
+	if v, ok := networkFilterFactoryMap.Load(listenerName); ok {
+		return v.([]api.NetworkFilterChainFactory)
+	}
+
+	return nil
 }

@@ -20,7 +20,7 @@ package proxywasm010
 import (
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/wasm/abi"
-	"mosn.io/proxy-wasm-go-host/proxywasm"
+	proxywasm "mosn.io/proxy-wasm-go-host/proxywasm/v1"
 )
 
 func init() {
@@ -59,7 +59,9 @@ func (ctx *ABIContext) GetABIExports() interface{} {
 
 // implement types.ABIHandler
 func (ctx *ABIContext) OnInstanceCreate(instance types.WasmInstance) {
-	proxywasm.RegisterImports(instance)
+	if err := instance.RegisterImports(ctx.Name()); err != nil {
+		panic(err)
+	}
 }
 
 func (ctx *ABIContext) OnInstanceStart(instance types.WasmInstance) {}

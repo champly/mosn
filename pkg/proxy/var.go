@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	"mosn.io/mosn/pkg/types"
-	"mosn.io/mosn/pkg/variable"
+	"mosn.io/pkg/variable"
 )
 
 const (
@@ -37,6 +37,7 @@ var (
 		variable.NewStringVariable(types.VarRequestReceivedDuration, nil, receivedDurationGetter, nil, 0),
 		variable.NewStringVariable(types.VarResponseReceivedDuration, nil, responseReceivedDurationGetter, nil, 0),
 		variable.NewStringVariable(types.VarRequestFinishedDuration, nil, requestFinishedDurationGetter, nil, 0),
+		variable.NewStringVariable(types.VarProcessTimeDuration, nil, processTimeDurationGetter, nil, 0),
 		variable.NewStringVariable(types.VarBytesSent, nil, bytesSentGetter, nil, 0),
 		variable.NewStringVariable(types.VarBytesReceived, nil, bytesReceivedGetter, nil, 0),
 		variable.NewStringVariable(types.VarProtocol, nil, protocolGetter, nil, 0),
@@ -115,6 +116,14 @@ func requestFinishedDurationGetter(ctx context.Context, value *variable.IndexedV
 	return info.RequestFinishedDuration().String(), nil
 }
 
+// ProcessTimeDurationGetter gets the duration between request arriving and request request forwarding, plus the duration between resposne arriving and response sending
+func processTimeDurationGetter(ctx context.Context, value *variable.IndexedValue, data interface{}) (string, error) {
+	proxyBuffers := proxyBuffersByContext(ctx)
+	info := proxyBuffers.info
+
+	return info.ProcessTimeDuration().String(), nil
+}
+
 // BytesSentGetter
 // get bytes sent
 func bytesSentGetter(ctx context.Context, value *variable.IndexedValue, data interface{}) (string, error) {
@@ -165,7 +174,7 @@ func responseFlagGetter(ctx context.Context, value *variable.IndexedValue, data 
 	proxyBuffers := proxyBuffersByContext(ctx)
 	info := proxyBuffers.info
 
-	return strconv.FormatBool(info.GetResponseFlag(0)), nil
+	return strconv.FormatBool(info.GetResponseFlag(^0)), nil
 }
 
 // UpstreamLocalAddressGetter
@@ -174,7 +183,11 @@ func upstreamLocalAddressGetter(ctx context.Context, value *variable.IndexedValu
 	proxyBuffers := proxyBuffersByContext(ctx)
 	info := proxyBuffers.info
 
-	return info.UpstreamLocalAddress(), nil
+	if info.UpstreamLocalAddress() != "" {
+		return info.UpstreamLocalAddress(), nil
+	}
+
+	return variable.ValueNotFound, nil
 }
 
 // DownstreamLocalAddressGetter
@@ -236,6 +249,9 @@ func upstreamClusterGetter(ctx context.Context, value *variable.IndexedValue, da
 func requestHeaderMapGetter(ctx context.Context, value *variable.IndexedValue, data interface{}) (string, error) {
 	proxyBuffers := proxyBuffersByContext(ctx)
 	headers := proxyBuffers.stream.downstreamReqHeaders
+	if headers == nil {
+		return variable.ValueNotFound, errors.New("not found request headers")
+	}
 
 	headerName := data.(string)
 	headerValue, ok := headers.Get(headerName[reqHeaderIndex:])
@@ -248,7 +264,10 @@ func requestHeaderMapGetter(ctx context.Context, value *variable.IndexedValue, d
 
 func responseHeaderMapGetter(ctx context.Context, value *variable.IndexedValue, data interface{}) (string, error) {
 	proxyBuffers := proxyBuffersByContext(ctx)
-	headers := proxyBuffers.request.upstreamRespHeaders
+	headers := proxyBuffers.stream.downstreamRespHeaders
+	if headers == nil {
+		return variable.ValueNotFound, errors.New("not found resp headers")
+	}
 
 	headerName := data.(string)
 	headerValue, ok := headers.Get(headerName[respHeaderIndex:])

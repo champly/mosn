@@ -1,7 +1,5 @@
-module mosn.io/mosn/seata-filter-samples
+module mosn.io/mosn/examples/codes/seata
 
 go 1.15
 
-require (
-	github.com/gin-gonic/gin v1.7.0
-)
+require github.com/gin-gonic/gin v1.7.4

@@ -43,6 +43,10 @@ func (ci *fakeClusterInfo) Name() string {
 	return "test"
 }
 
+func (ci *fakeClusterInfo) Mark() uint32 {
+	return 0
+}
+
 type fakeTLSContextManager struct {
 	types.TLSContextManager
 }
@@ -67,6 +71,10 @@ func (ci *fakeClusterInfo) ConnectTimeout() time.Duration {
 	return network.DefaultConnectTimeout
 }
 
+func (ci *fakeClusterInfo) IdleTimeout() time.Duration {
+	return 0
+}
+
 func (ci *fakeClusterInfo) ConnBufferLimitBytes() uint32 {
 	return 0
 }
@@ -79,6 +87,10 @@ func (ci *fakeClusterInfo) Stats() types.ClusterStats {
 		UpstreamConnectionActive:                       metrics.NewCounter(),
 		UpstreamConnectionConFail:                      metrics.NewCounter(),
 	}
+}
+
+func (ci *fakeClusterInfo) SlowStart() types.SlowStart {
+	return types.SlowStart{}
 }
 
 type fakeResourceManager struct {

@@ -20,19 +20,19 @@ package mosn
 import (
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
+	"os"
 	goplugin "plugin"
 
 	"mosn.io/api"
 	"mosn.io/mosn/pkg/admin/store"
-	"mosn.io/mosn/pkg/config/v2"
+	v2 "mosn.io/mosn/pkg/config/v2"
+	"mosn.io/mosn/pkg/configmanager"
 	"mosn.io/mosn/pkg/log"
-	"mosn.io/mosn/pkg/metrics"
-	"mosn.io/mosn/pkg/metrics/shm"
-	"mosn.io/mosn/pkg/metrics/sink"
 	"mosn.io/mosn/pkg/plugin"
 	"mosn.io/mosn/pkg/protocol/xprotocol"
 	xwasm "mosn.io/mosn/pkg/protocol/xprotocol/wasm"
-	"mosn.io/mosn/pkg/server/keeper"
+	"mosn.io/mosn/pkg/server/pid"
 	"mosn.io/mosn/pkg/trace"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/wasm"
@@ -42,10 +42,14 @@ import (
 func InitDebugServe(c *v2.MOSNConfig) {
 	if c.Debug.StartDebug {
 		port := 9090 //default use 9090
+		endpoint := "0.0.0.0"
 		if c.Debug.Port != 0 {
 			port = c.Debug.Port
 		}
-		addr := fmt.Sprintf("0.0.0.0:%d", port)
+		if c.Debug.Endpoint != "" {
+			endpoint = c.Debug.Endpoint
+		}
+		addr := fmt.Sprintf("%s:%d", endpoint, port)
 		s := &http.Server{Addr: addr, Handler: nil}
 		store.AddService(s, "pprof", nil, nil)
 	}
@@ -72,39 +76,17 @@ func initializeTracing(config v2.TracingConfig) {
 	}
 }
 
-func InitializeMetrics(c *v2.MOSNConfig) {
-	metrics.FlushMosnMetrics = true
-	initializeMetrics(c.Metrics)
-}
 
-func initializeMetrics(config v2.MetricsConfig) {
-	// init shm zone
-	if config.ShmZone != "" && config.ShmSize > 0 {
-		shm.InitDefaultMetricsZone(config.ShmZone, int(config.ShmSize), store.GetMosnState() != store.Active_Reconfiguring)
-	}
-
-	// set metrics package
-	statsMatcher := config.StatsMatcher
-	metrics.SetStatsMatcher(statsMatcher.RejectAll, statsMatcher.ExclusionLabels, statsMatcher.ExclusionKeys)
-	metrics.SetMetricsFeature(config.FlushMosn, config.LazyFlush)
-	// create sinks
-	for _, cfg := range config.SinkConfigs {
-		_, err := sink.CreateMetricsSink(cfg.Type, cfg.Config)
-		// abort
-		if err != nil {
-			log.StartLogger.Errorf("[mosn] [init metrics] %s. %v metrics sink is turned off", err, cfg.Type)
-			return
-		}
-		log.StartLogger.Infof("[mosn] [init metrics] create metrics sink: %v", cfg.Type)
-	}
+func InitDefaultPath(c *v2.MOSNConfig) {
+	types.InitDefaultPath(configmanager.GetConfigPath(), c.UDSDir)
 }
 
 func InitializePidFile(c *v2.MOSNConfig) {
 	initializePidFile(c.Pid)
 }
 
-func initializePidFile(pid string) {
-	keeper.SetPid(pid)
+func initializePidFile(id string) {
+	pid.SetPid(id)
 }
 
 func InitializePlugin(c *v2.MOSNConfig) {
@@ -143,7 +125,8 @@ func initializeThirdPartCodec(config v2.ThirdPartCodecConfig) {
 		switch codec.Type {
 		case v2.GoPlugin:
 			if err := readProtocolPlugin(codec.Path, codec.LoaderFuncName); err != nil {
-				log.StartLogger.Errorf("[mosn] [init codec] init go-plugin codec failed: %+v", err)
+				cwd, _ := os.Getwd()
+				log.StartLogger.Errorf("[mosn] [init codec] init go-plugin codec failed: %+v, cwd: %v)", err, cwd)
 				continue
 			}
 			log.StartLogger.Infof("[mosn] [init codec] load go plugin codec succeed: %+v", codec.Path)
@@ -185,13 +168,7 @@ func readProtocolPlugin(path, loadFuncName string) error {
 	protocolName := codec.ProtocolName()
 	log.StartLogger.Infof("[mosn] [init codec] loading protocol [%v] from third part codec", protocolName)
 
-	if err := xprotocol.RegisterProtocol(protocolName, codec.XProtocol()); err != nil {
-		return err
-	}
-	if err := xprotocol.RegisterMapping(protocolName, codec.HTTPMapping()); err != nil {
-		return err
-	}
-	if err := xprotocol.RegisterMatcher(protocolName, codec.ProtocolMatch()); err != nil {
+	if err := xprotocol.RegisterXProtocolCodec(codec); err != nil {
 		return err
 	}
 

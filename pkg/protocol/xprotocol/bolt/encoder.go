@@ -21,19 +21,19 @@ import (
 	"context"
 	"encoding/binary"
 
-	"mosn.io/mosn/pkg/protocol/xprotocol"
-	"mosn.io/mosn/pkg/types"
+	"mosn.io/api"
 	"mosn.io/pkg/buffer"
+	"mosn.io/pkg/header"
 )
 
-func encodeRequest(ctx context.Context, request *Request) (types.IoBuffer, error) {
+func encodeRequest(ctx context.Context, request *Request) (api.IoBuffer, error) {
 	// 1. fast-path, use existed raw data
 	if request.rawData != nil {
 		// 1.1 replace requestId
 		binary.BigEndian.PutUint32(request.rawMeta[RequestIdIndex:], request.RequestId)
 
 		// 1.2 check if header/content changed
-		if !request.Header.Changed && !request.ContentChanged {
+		if !request.BytesHeader.Changed && !request.ContentChanged {
 			// hack: increase the buffer count to avoid premature recycle
 			request.Data.Count(1)
 			return request.Data, nil
@@ -45,13 +45,22 @@ func encodeRequest(ctx context.Context, request *Request) (types.IoBuffer, error
 	// 2.1 calculate frame length
 	if request.Class != "" {
 		request.ClassLen = uint16(len(request.Class))
+	} else {
+		request.ClassLen = 0
 	}
-	if len(request.Header.Kvs) != 0 {
-		request.HeaderLen = uint16(xprotocol.GetHeaderEncodeLength(&request.Header))
+
+	if len(request.BytesHeader.Kvs) != 0 {
+		request.HeaderLen = uint16(header.GetHeaderEncodeLength(&request.BytesHeader))
+	} else {
+		request.HeaderLen = 0
 	}
+
 	if request.Content != nil {
 		request.ContentLen = uint32(request.Content.Len())
+	} else {
+		request.ContentLen = 0
 	}
+
 	frameLen := RequestHeaderLen + int(request.ClassLen) + int(request.HeaderLen) + int(request.ContentLen)
 
 	// 2.2 alloc encode buffer, this buffer will be recycled after connection.Write
@@ -75,7 +84,7 @@ func encodeRequest(ctx context.Context, request *Request) (types.IoBuffer, error
 	}
 	// 2.3.3 header
 	if request.HeaderLen > 0 {
-		xprotocol.EncodeHeader(buf, &request.Header)
+		header.EncodeHeader(buf, &request.BytesHeader)
 	}
 	// 2.3.4 content
 	if request.ContentLen > 0 {
@@ -86,14 +95,14 @@ func encodeRequest(ctx context.Context, request *Request) (types.IoBuffer, error
 	return buf, nil
 }
 
-func encodeResponse(ctx context.Context, response *Response) (types.IoBuffer, error) {
+func encodeResponse(ctx context.Context, response *Response) (api.IoBuffer, error) {
 	// 1. fast-path, use existed raw data
 	if response.rawData != nil {
 		// 1. replace requestId
 		binary.BigEndian.PutUint32(response.rawMeta[RequestIdIndex:], uint32(response.RequestId))
 
 		// 2. check header change
-		if !response.Header.Changed && !response.ContentChanged {
+		if !response.BytesHeader.Changed && !response.ContentChanged {
 			// hack: increase the buffer count to avoid premature recycle
 			response.Data.Count(1)
 			return response.Data, nil
@@ -105,13 +114,22 @@ func encodeResponse(ctx context.Context, response *Response) (types.IoBuffer, er
 	// 2.1 calculate frame length
 	if response.Class != "" {
 		response.ClassLen = uint16(len(response.Class))
+	} else {
+		response.ClassLen = 0
 	}
-	if len(response.Header.Kvs) != 0 {
-		response.HeaderLen = uint16(xprotocol.GetHeaderEncodeLength(&response.Header))
+
+	if len(response.BytesHeader.Kvs) != 0 {
+		response.HeaderLen = uint16(header.GetHeaderEncodeLength(&response.BytesHeader))
+	} else {
+		response.HeaderLen = 0
 	}
+
 	if response.Content != nil {
 		response.ContentLen = uint32(response.Content.Len())
+	} else {
+		response.ContentLen = 0
 	}
+
 	frameLen := ResponseHeaderLen + int(response.ClassLen) + int(response.HeaderLen) + int(response.ContentLen)
 
 	// 2.2 alloc encode buffer, this buffer will be recycled after connection.Write
@@ -135,7 +153,7 @@ func encodeResponse(ctx context.Context, response *Response) (types.IoBuffer, er
 	}
 	// 2.3.3 header
 	if response.HeaderLen > 0 {
-		xprotocol.EncodeHeader(buf, &response.Header)
+		header.EncodeHeader(buf, &response.BytesHeader)
 	}
 	// 2.3.4 content
 	if response.ContentLen > 0 {

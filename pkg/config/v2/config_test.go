@@ -25,8 +25,10 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,7 +159,7 @@ func TestClusterConfigWithSep(t *testing.T) {
 			ClusterConfigPath: testClusterPath,
 		},
 		Clusters: []Cluster{
-			Cluster{
+			{
 				Name: clusterName,
 			},
 		},
@@ -269,6 +271,41 @@ func TestMosnMixMode(t *testing.T) {
 	}
 }
 
+func TestSlowStartConfigParse(t *testing.T) {
+	mosnConfig := `{
+		"cluster_manager": {
+			"clusters": [
+				{
+					"name": "cluster0",
+					"slow_start": {
+						"mode": "duration",
+						"slow_start_duration": "10s",
+						"aggression": 2.0,
+						"min_weight_percent": 0.125
+					}
+				},
+				{
+					"name": "cluster1"
+				}
+			]
+		}
+	}`
+	testConfig := &MOSNConfig{}
+	if err := json.Unmarshal([]byte(mosnConfig), testConfig); err != nil {
+		t.Fatal(err)
+	}
+	// verify
+	clusters := testConfig.ClusterManager.Clusters
+	assert.Equal(t, "duration", clusters[0].SlowStart.Mode)
+	assert.Equal(t, 10*time.Second, clusters[0].SlowStart.SlowStartDuration.Duration)
+	assert.Equal(t, 2.0, clusters[0].SlowStart.Aggression)
+	assert.Equal(t, 0.125, clusters[0].SlowStart.MinWeightPercent)
+	assert.Empty(t, clusters[1].SlowStart.Mode)
+	assert.Nil(t, clusters[1].SlowStart.SlowStartDuration)
+	assert.Zero(t, clusters[1].SlowStart.Aggression)
+	assert.Zero(t, clusters[1].SlowStart.MinWeightPercent)
+}
+
 var _iterJson = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // test for config unmarshal with json-iterator and json (std lib)
@@ -277,7 +314,10 @@ func BenchmarkConfigUnmarshal(b *testing.B) {
 	// assume 5K clusters
 	// test dynamic mode
 	clusterPath := "/tmp/clusters"
+	routerPath := "/tmp/routers/test_router"
 	os.RemoveAll(clusterPath)
+	os.RemoveAll(routerPath)
+	os.MkdirAll(routerPath, 0755)
 	os.MkdirAll(clusterPath, 0755)
 	for i := 0; i < 5000; i++ {
 		c := fmt.Sprintf(`{
@@ -312,6 +352,9 @@ func BenchmarkConfigUnmarshal(b *testing.B) {
 
 func BenchmarkConfigMarshal(b *testing.B) {
 	clusterPath := "/tmp/clusters"
+	routerPath := "/tmp/routers/test_router"
+	os.RemoveAll(routerPath)
+	os.MkdirAll(routerPath, 0755)
 	cfg := ClusterManagerConfig{
 		ClusterManagerConfigJson: ClusterManagerConfigJson{
 			ClusterConfigPath: clusterPath,

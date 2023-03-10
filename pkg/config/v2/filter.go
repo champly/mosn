@@ -85,6 +85,7 @@ const (
 	X_PROXY                     = "x_proxy"
 	Transcoder                  = "transcoder"
 	GRPC_NETWORK_FILTER         = "grpc"
+	TUNNEL                      = "tunnel"
 )
 
 // Stream Filter's Type
@@ -97,6 +98,8 @@ const (
 	Mirror                     = "mirror"
 	DubboStream                = "dubbo_stream"
 	GoPluginStreamFilterSuffix = "so_plugin"
+	GrpcMetricFilter           = "grpc_metric"
+	IPAccess                   = "ip_access"
 )
 
 // HealthCheckFilter
